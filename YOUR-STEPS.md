@@ -344,6 +344,7 @@ If `destroy` hangs on the VPC or subnets: a load balancer or network interface i
 | Symptom | Fix |
 |---|---|
 | `docker: command not found` | Docker Desktop not running, or reopen Git Bash after install |
+| `terraform init`: *Filename too long* | Windows path limit: run `git config --global core.longpaths true`, then `terraform init` again |
 | Port 5432/8000/3000 already in use | Stop the other program, or change the left-hand port in `docker-compose.yml` |
 | Pods `ImagePullBackOff` | GHCR packages still private: make them public (step 4) |
 | Postgres pod `Pending` | `kubectl apply -f k8s/storageclass-gp3.yaml`; check `kubectl get pvc -n clinicflow` |
