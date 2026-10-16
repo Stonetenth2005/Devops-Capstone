@@ -1,79 +1,191 @@
-name: TaskBoard Python CI/CD
+name: ClinicFlow CI/CD
+
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
 env:
   REGISTRY: ghcr.io
+
 jobs:
-  test:
+  # ---------------------------------------------------------------- quality gates
+  backend-test:
+    name: Backend lint + tests
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: {python-version: '3.12'}
-      - name: Install backend dependencies
-        run: pip install -r requirements.txt
+    defaults:
+      run:
         working-directory: backend
-      - name: Run backend tests
-        run: pytest -q
-        working-directory: backend
-      - uses: actions/setup-node@v4
-        with: {node-version: '22'}
-      - name: Build frontend
-        run: npm install && npm run build
-        working-directory: frontend
-  build-scan-push:
-    needs: test
-    runs-on: ubuntu-latest
-    permissions: {contents: read, packages: write}
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
-          registry: ghcr.io
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Lint (ruff)
+        run: |
+          ruff check .
+          ruff format --check .
+      - name: Run pytest (fails the build on any test failure)
+        run: pytest -v --cov=app --cov-report=term-missing --junitxml=pytest-report.xml
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-report
+          path: backend/pytest-report.xml
+
+  frontend-build:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  iac-validate:
+    name: Helm + Terraform validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.22.1
+      - name: Helm lint and render
+        run: |
+          helm lint helm/clinicflow --strict -f helm/clinicflow/values-prod.yaml \
+            --set backend.image.tag=ci --set frontend.image.tag=ci
+          helm template clinicflow helm/clinicflow -f helm/clinicflow/values-prod.yaml \
+            --set backend.image.tag=ci --set frontend.image.tag=ci > /dev/null
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.16.6
+      - name: Terraform fmt + validate
+        working-directory: terraform
+        run: |
+          terraform fmt -check -recursive
+          terraform init -backend=false -input=false
+          terraform validate
+
+  # --------------------------------------------------- build, scan, push images
+  build-scan-push:
+    name: Build, scan & push (${{ matrix.component }})
+    needs: [backend-test, frontend-build, iac-validate]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Compute image name (GHCR needs a lowercase owner)
+        run: echo "IMAGE=${REGISTRY}/${GITHUB_REPOSITORY_OWNER,,}/clinicflow-${{ matrix.component }}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image tagged with the commit SHA
+        uses: docker/build-push-action@v6
+        with:
+          context: ./${{ matrix.component }}
+          load: true
+          push: false
+          tags: ${{ env.IMAGE }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}
+
+      # Pinned to the immutable v0.35.0 commit: earlier trivy-action tags were
+      # hijacked in March 2026 (CVE-2026-33634), so never reference this action by tag.
+      - name: Trivy scan (fail on HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          version: v0.69.3
+          image-ref: ${{ env.IMAGE }}:${{ github.sha }}
+          scan-type: image
+          format: table
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build images
-        run: |
-          docker build -t ghcr.io/${{ github.repository_owner }}/taskboard-backend:${{ github.sha }} ./backend
-          docker build -t ghcr.io/${{ github.repository_owner }}/taskboard-frontend:${{ github.sha }} ./frontend
-      - name: Scan backend
-        uses: aquasecurity/trivy-action@0.30.0
-        with:
-          image-ref: ghcr.io/${{ github.repository_owner }}/taskboard-backend:${{ github.sha }}
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: '1'
-      - name: Scan frontend
-        uses: aquasecurity/trivy-action@0.30.0
-        with:
-          image-ref: ghcr.io/${{ github.repository_owner }}/taskboard-frontend:${{ github.sha }}
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: '1'
-      - name: Push images
-        run: |
-          docker push ghcr.io/${{ github.repository_owner }}/taskboard-backend:${{ github.sha }}
-          docker push ghcr.io/${{ github.repository_owner }}/taskboard-frontend:${{ github.sha }}
+
+      - name: Push image
+        if: github.event_name != 'pull_request'
+        run: docker push "$IMAGE:${{ github.sha }}"
+
+  # ------------------------------------------------------------- deploy to EKS
   deploy:
-    if: github.ref == 'refs/heads/main'
+    name: Deploy to EKS with Helm
     needs: build-scan-push
+    # Turn on by creating the repository variable DEPLOY_ENABLED=true once the cluster exists.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-latest
-    permissions: {contents: read, packages: read}
+    concurrency: deploy-production
+    environment: production
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
+      CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME || 'clinicflow-dev-eks' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+      - name: Check required secrets
+        env:
+          AWS_KEY: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          PG_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+        run: |
+          [ -n "$AWS_KEY" ] || { echo "::error::Secret AWS_ACCESS_KEY_ID is not set"; exit 1; }
+          [ -n "$PG_PASSWORD" ] || { echo "::error::Secret POSTGRES_PASSWORD is not set"; exit 1; }
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
       - uses: azure/setup-helm@v4
-      - name: Configure kubectl
-        env: {KUBE_CONFIG_DATA: '${{ secrets.KUBE_CONFIG_DATA }}'}
+        with:
+          version: v3.22.1
+      - name: Configure kubectl for the EKS cluster
+        run: aws eks update-kubeconfig --region "$AWS_REGION" --name "$CLUSTER_NAME"
+      - name: Helm upgrade --install
         run: |
-          mkdir -p ~/.kube
-          echo "$KUBE_CONFIG_DATA" | base64 -d > ~/.kube/config
-      - name: Deploy with Helm
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          helm upgrade --install clinicflow ./helm/clinicflow \
+            --namespace clinicflow --create-namespace \
+            -f helm/clinicflow/values-prod.yaml \
+            --set backend.image.repository=${REGISTRY}/${OWNER}/clinicflow-backend \
+            --set frontend.image.repository=${REGISTRY}/${OWNER}/clinicflow-frontend \
+            --set backend.image.tag=${{ github.sha }} \
+            --set frontend.image.tag=${{ github.sha }} \
+            --set-string postgres.password='${{ secrets.POSTGRES_PASSWORD }}' \
+            --wait --timeout 10m
+      - name: Show rollout
         run: |
-          helm upgrade --install taskboard ./helm/taskboard -n taskboard --create-namespace \
-            --set backend.tag=${{ github.sha }} \
-            --set frontend.tag=${{ github.sha }} \
-            --set backend.image=ghcr.io/${{ github.repository_owner }}/taskboard-backend \
-            --set frontend.image=ghcr.io/${{ github.repository_owner }}/taskboard-frontend
+          kubectl get pods,svc,ingress,hpa -n clinicflow
+          helm list -n clinicflow
