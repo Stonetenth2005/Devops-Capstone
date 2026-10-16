@@ -5,7 +5,10 @@ ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 COPY requirements.txt .
-RUN pip install --upgrade pip && pip install -r requirements.txt
+# pip is dropped once the deps are in: it is not needed at runtime and vendors its
+# own urllib3/msgpack copies, which Trivy flags as HIGH CVEs.
+RUN pip install --upgrade pip && pip install -r requirements.txt \
+    && pip uninstall -y pip
 
 # ---- runtime stage: only the venv + app code, running as a non-root user ----
 FROM python:3.12-slim AS runtime
@@ -14,6 +17,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH="/opt/venv/bin:$PATH"
 WORKDIR /app
 RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/* \
+    && python -m pip uninstall -y pip \
     && useradd --create-home --uid 10001 --shell /usr/sbin/nologin appuser
 COPY --from=build /opt/venv /opt/venv
 COPY alembic.ini ./
