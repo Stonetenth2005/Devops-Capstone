@@ -1,4 +1,11 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: taskboard
+  name: clinicflow
+  labels:
+    app.kubernetes.io/part-of: clinicflow
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring

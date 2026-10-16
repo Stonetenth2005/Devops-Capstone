@@ -1,6 +1,28 @@
-grafana:
-  enabled: true
+# Values for the prometheus-community/kube-prometheus-stack chart.
+#   helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+#     -n monitoring --create-namespace -f monitoring/prometheus-values.yaml
 prometheus:
   prometheusSpec:
+    # Scrape every ServiceMonitor in every namespace, not only ones labelled for this release.
     serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
     serviceMonitorNamespaceSelector: {}
+    retention: 2d
+    resources:
+      requests: { cpu: 100m, memory: 400Mi }
+
+alertmanager:
+  enabled: false # not needed for the capstone; saves memory on small nodes
+
+grafana:
+  enabled: true
+  # Set the real password at install time:  --set grafana.adminPassword=<your-password>
+  adminPassword: change-me
+  service:
+    type: ClusterIP # reach it with: kubectl port-forward -n monitoring svc/kube-prometheus-stack-grafana 3001:80
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL # pick up the ClinicFlow dashboard ConfigMap from the app namespace
