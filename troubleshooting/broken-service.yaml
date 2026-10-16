@@ -1,6 +1,14 @@
+# Lab 2: a Service whose selector matches no Pods -> no endpoints -> no traffic.
+# kubectl apply -f troubleshooting/broken-service.yaml
+# kubectl get endpoints -n clinicflow broken-service ; kubectl get pods -n clinicflow --show-labels
 apiVersion: v1
 kind: Service
-metadata: {name: broken-service, namespace: taskboard}
+metadata:
+  name: broken-service
+  namespace: clinicflow
 spec:
-  selector: {app: label-that-does-not-exist}
-  ports: [{port: 8080, targetPort: 8080}]
+  selector:
+    app.kubernetes.io/component: backnd # typo on purpose: should be "backend"
+  ports:
+    - port: 8000
+      targetPort: 8000
