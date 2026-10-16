@@ -1,6 +1,10 @@
-replicaCount: 1
+# Local cluster (Docker Desktop Kubernetes / kind / minikube) with ingress-nginx.
+# Add "127.0.0.1 clinicflow.local" to your hosts file, then open http://clinicflow.local
+backend:
+  replicaCount: 1
+frontend:
+  replicaCount: 1
 ingress:
-  enabled: true
-  host: taskboard.local
+  host: clinicflow.local
 hpa:
   enabled: false

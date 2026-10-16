@@ -1,28 +1,55 @@
-frontend:
-  image: ghcr.io/YOUR_ORG/taskboard-frontend
-  tag: latest
+# Default values for the ClinicFlow chart.
+# Image tags are deliberately empty: CI passes the Git commit SHA with
+#   --set backend.image.tag=<sha> --set frontend.image.tag=<sha>
+
 backend:
-  image: ghcr.io/YOUR_ORG/taskboard-backend
-  tag: latest
-replicaCount: 2
-namespace: taskboard
+  image:
+    repository: ghcr.io/YOUR_GITHUB_USERNAME/clinicflow-backend
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicaCount: 2
+  resources:
+    requests: { cpu: 100m, memory: 192Mi }
+    limits: { cpu: 500m, memory: 384Mi }
+
+frontend:
+  image:
+    repository: ghcr.io/YOUR_GITHUB_USERNAME/clinicflow-frontend
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicaCount: 2
+  resources:
+    requests: { cpu: 25m, memory: 32Mi }
+    limits: { cpu: 200m, memory: 128Mi }
+
+# Needed only if the GHCR packages are private, e.g. [{ name: ghcr-pull }]
 imagePullSecrets: []
+
 postgres:
-  host: taskboard-postgres
-  database: taskboard
-  username: taskboard
-  password: taskboard
+  image: postgres:16-alpine
+  database: clinicflow
+  username: clinicflow
+  password: change-me # override with --set postgres.password=... (CI uses a GitHub secret)
+  storage: 5Gi
+  storageClass: "" # "" = cluster default; on EKS use gp3 (see k8s/storageclass-gp3.yaml)
+
 ingress:
-  enabled: false
-  host: taskboard.local
+  enabled: true
+  className: nginx
+  host: "" # empty = match any hostname (e.g. the AWS load balancer DNS name)
+
 hpa:
   enabled: true
   minReplicas: 2
   maxReplicas: 6
   targetCPUUtilizationPercentage: 60
-resources:
-  requests: {cpu: 100m, memory: 256Mi}
-  limits: {cpu: 500m, memory: 512Mi}
+
 monitoring:
+  # Created only when the Prometheus Operator CRDs exist in the cluster.
   serviceMonitor:
+    enabled: true
+    interval: 15s
+    releaseLabel: kube-prometheus-stack
+  # Grafana dashboard ConfigMap picked up by the Grafana sidecar.
+  grafanaDashboard:
     enabled: true
