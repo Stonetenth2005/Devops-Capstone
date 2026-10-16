@@ -14,7 +14,7 @@ All screenshots live in [`screenshots/`](screenshots/). File names start with th
 
 **Repo:** <https://github.com/Stonetenth2005/Devops-Capstone> · **Green pipeline run:** <https://github.com/Stonetenth2005/Devops-Capstone/actions/runs/38943202171>
 
-### ✅ Already taken (25)
+### ✅ Already taken (30)
 
 | Module | File | Shows |
 |---|---|---|
