@@ -1,6 +1,6 @@
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, pool, text
 
 from alembic import context
 from app import models  # noqa: F401  (registers tables on Base.metadata)
@@ -12,6 +12,7 @@ config.set_main_option("sqlalchemy.url", settings.database_url)
 if config.config_file_name:
     fileConfig(config.config_file_name)
 target_metadata = Base.metadata
+MIGRATION_LOCK_KEY = 72_019_001  # arbitrary app-wide id for pg_advisory_lock
 
 
 def run_migrations_offline():
@@ -32,6 +33,10 @@ def run_migrations_online():
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
+        if connection.dialect.name == "postgresql":
+            # Several backend replicas start at once; only one may migrate at a time.
+            connection.execute(text("SELECT pg_advisory_lock(:key)"), {"key": MIGRATION_LOCK_KEY})
+            connection.commit()
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():
             context.run_migrations()
