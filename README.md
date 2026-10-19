@@ -6,6 +6,22 @@ The application is the vehicle for the real goal: a complete delivery path from 
 
 > **Doing the setup yourself?** Every manual step (installs, sign-ins, AWS, GitHub, screenshots, teardown) is in **[YOUR-STEPS.md](YOUR-STEPS.md)**.
 
+## Demo video (M10)
+
+**[▶ demo/clinicflow-demo.mp4](demo/clinicflow-demo.mp4)** (4 min 51 s, recorded walkthrough)
+
+What it shows, in order:
+
+1. The app on Kubernetes (kind) through the NGINX Ingress: book an appointment, the API rejecting a double booking (HTTP 409), checking the patient in.
+2. A code change (dashboard heading becomes "Clinic overview, live demo") committed and pushed to `main` ([`b539493`](https://github.com/Stonetenth2005/Devops-Capstone/commit/b539493)).
+3. The GitHub Actions run for that commit: tests, lint and validation pass, but the **Trivy gate fails** on CVE-2026-77214 (libexpat) in the frontend image, so nothing is pushed or deployed.
+4. Root cause and fix: the CVE was already fixed in Alpine 3.23, but a cached `apk upgrade` layer kept the old package. CI now pulls the base image and rebuilds the runtime stage on every build ([`ac0e34f`](https://github.com/Stonetenth2005/Devops-Capstone/commit/ac0e34f)), verified locally with a clean rescan.
+5. The new run goes green and SHA-tagged images land in GHCR.
+6. `helm upgrade` to the new SHA: a rolling update replaces the pods with no downtime, and the browser shows the new heading.
+7. Prometheus targets UP and the Grafana ClinicFlow API dashboard.
+
+The pipeline's `deploy` job targets EKS and stays skipped while `DEPLOY_ENABLED` is off, so in the video the same Helm upgrade is run against the local kind cluster.
+
 ---
 
 ## Architecture
@@ -196,6 +212,7 @@ Images are never tagged `latest`, so every running pod can be traced back to the
 ## Security (DevSecOps)
 
 - **Trivy** scans both images for OS and library CVEs; HIGH or CRITICAL findings that have a fix fail the build.
+- The image build always pulls the base image and rebuilds the `runtime` stage (`pull: true`, `no-cache-filters: runtime`), so a cached `apk upgrade` layer can't hide a security fix from the scan.
 - The Trivy action is **pinned to a commit SHA** (v0.35.0). In March 2026 most `aquasecurity/trivy-action` tags were hijacked (CVE-2026-33634), which is why third-party actions should be pinned by SHA rather than tag.
 - Containers run as non-root, with `allowPrivilegeEscalation: false` and all Linux capabilities dropped in Kubernetes.
 - No credentials in Git: `.env`, `*.tfvars`, state and kubeconfigs are git-ignored. AWS keys and the database password live in GitHub Secrets, and DB credentials are a Kubernetes Secret.
@@ -275,4 +292,4 @@ The **ClinicFlow API** dashboard has 8 panels: pods up, request count, bookings 
 | M7 Terraform | `terraform/` (+ `terraform.tfvars.example`) |
 | M8 K8s/Helm | `k8s/`, `helm/clinicflow/` |
 | M9 Observability | `/metrics`, ServiceMonitor, `monitoring/`, Grafana dashboard |
-| M10 Docs/Demo | this README, demo script in YOUR-STEPS.md |
+| M10 Docs/Demo | this README, [demo video](demo/clinicflow-demo.mp4), demo script in YOUR-STEPS.md |

@@ -391,7 +391,7 @@ If `destroy` hangs on the VPC or subnets: a load balancer or network interface i
 | M7 | `terraform plan`, AWS console VPC + EKS, `terraform destroy` screenshots | plan ☑; apply / console / destroy ☐ |
 | M8 | `kubectl get pods`, `kubectl get svc`, `helm list` screenshots; app via Ingress | ☑ on kind; ☐ on EKS |
 | M9 | `/metrics` curl, Prometheus Targets UP, Grafana dashboard screenshots | ☑ on kind; ☐ on EKS |
-| M10 | README.md; live demo (section 9) | ☐ |
+| M10 | README.md; live demo (section 9) or recorded walkthrough | ☑ [`demo/clinicflow-demo.mp4`](demo/clinicflow-demo.mp4) (kind); live demo on EKS still optional |
 
 ---
 
