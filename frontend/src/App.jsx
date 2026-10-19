@@ -86,7 +86,7 @@ export default function App() {
         <header className="page-head">
           <div>
             <p className="eyebrow">{today}</p>
-            <h1>Clinic overview</h1>
+            <h1>Clinic overview, live demo</h1>
             <p className="muted">Book, check in and close out patient visits.</p>
           </div>
           <button className="primary" onClick={() => setShowBooking(true)} disabled={!doctors.length}>
