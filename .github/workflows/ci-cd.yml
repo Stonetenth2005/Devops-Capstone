@@ -113,6 +113,10 @@ jobs:
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
+          # Always pull the base image and rebuild the runtime stage, so a cached
+          # "apk upgrade" / OS layer can't hide security fixes from the Trivy gate.
+          pull: true
+          no-cache-filters: runtime
           cache-from: type=gha,scope=${{ matrix.component }}
           cache-to: type=gha,mode=max,scope=${{ matrix.component }}
 
